@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+# Built from archive/ + data/observations.ndjson by the workflow and deployed
+# straight to Pages; no reason to version 73 MB of derived JSON.
+/api/
+/sbi-tt-rates-historical/
