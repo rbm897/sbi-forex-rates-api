@@ -33,7 +33,9 @@ def _date(s):
 
 
 def write_json(path, obj, indent=None):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     with open(path, "w") as fh:
         json.dump(obj, fh, indent=indent, separators=(",", ":") if indent is None else None)
         fh.write("\n")
@@ -46,10 +48,8 @@ def snapshot_key(rec):
 
 def main():
     ap = argparse.ArgumentParser()
-    src = ap.add_mutually_exclusive_group(required=True)
-    src.add_argument("--cards", help="data/cards directory of per-card JSON "
-                                     "(what CI uses: no PDFs needed)")
-    src.add_argument("--ndjson", help="NDJSON from extract_all, for local runs")
+    ap.add_argument("--cards", default="data/cards",
+                    help="directory of per-card JSON written by build_cards")
     ap.add_argument("--out", required=True)
     ap.add_argument("--observations",
                     help="observations.ndjson: the log of every fetch, including "
@@ -69,14 +69,11 @@ def main():
     raw_base = "https://raw.githubusercontent.com/%s/%s/%s" % (
         owner_repo, args.branch, args.archive_prefix.strip("/"))
 
-    if args.cards:
-        from build_cards import load_cards
-        recs = load_cards(args.cards)
-    else:
-        recs = [json.loads(l) for l in open(args.ndjson)]
+    from build_cards import load_cards
+    recs = load_cards(args.cards)
     ok = [r for r in recs if r["status"] == "ok"]
     if not ok:
-        raise SystemExit("no parsed cards found in %s" % (args.cards or args.ndjson))
+        raise SystemExit("no parsed cards found in %s" % args.cards)
     ok.sort(key=snapshot_key)
 
     out = args.out

@@ -25,8 +25,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import parse_sbi
-from build_cards import write_card
-from extract_all import extract_one
+from build_cards import extract_one, write_card
 
 URLS = [
     "https://sbi.bank.in/documents/16012/1400784/FOREX_CARD_RATES.pdf",
@@ -101,7 +100,9 @@ def card_fingerprint(tables):
 
 
 def append_log(path, entry):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     with open(path, "a") as fh:
         fh.write(json.dumps(entry, separators=(",", ":")) + "\n")
 

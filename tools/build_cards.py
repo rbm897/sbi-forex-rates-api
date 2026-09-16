@@ -1,4 +1,7 @@
-"""Derive the per-card JSON in data/cards/ from the archived PDFs.
+"""Parse archived PDFs into the per-card JSON in data/cards/.
+
+`extract_one` turns one PDF into a card record; `build_cards` walks the archive
+in parallel and writes the ones that are missing.
 
 The parsed form of each card is committed alongside the PDF so that routine CI
 never has to download the archive: the API is rebuilt from these small files,
@@ -10,11 +13,69 @@ One file per card, written once and never rewritten, so the repository grows by
 import argparse
 import json
 import os
+import re
 import sys
+from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from extract_all import extract_one
+import parse_sbi
 
+FNAME_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?:-(\d{2}):?(\d{2}))?\.pdf$")
+
+
+def snapshot_id(rel):
+    m = FNAME_RE.match(os.path.basename(rel))
+    if not m:
+        return None, None
+    y, mo, d, hh, mm = m.groups()
+    date = "%s-%s-%s" % (y, mo, d)
+    return date, ("%s:%s" % (hh, mm) if hh else None)
+
+
+def extract_one(root, rel):
+    date, clock = snapshot_id(rel)
+    rec = {"source_pdf": rel, "captured_date": date, "captured_time": clock}
+    path = os.path.join(root, rel)
+    if os.path.getsize(path) == 0:
+        rec["status"] = "empty_file"
+        return rec
+    try:
+        tables = parse_sbi.parse_pdf(path, captured_date=date)
+    except Exception as exc:
+        rec["status"] = "unreadable"
+        rec["error"] = "%s: %s" % (type(exc).__name__, exc)
+        return rec
+
+    errs = [t["error"] for t in tables if t.get("error")]
+    tables = [t for t in tables if t.get("rates")]
+    if not tables:
+        rec["status"] = "no_rate_table"
+        if errs:
+            rec["error"] = errs[0]
+        return rec
+
+    # Date/time are printed on the first page only; later pages inherit them.
+    pub_date = next((t["date"] for t in tables if t.get("date")), None)
+    pub_time = next((t["time"] for t in tables if t.get("time")), None)
+    rec["status"] = "ok"
+    rec["published_date"] = pub_date
+    rec["published_time"] = pub_time
+    out = []
+    seen_slabs = Counter()
+    for t in tables:
+        slab = t["slab"]
+        if slab is None:
+            slab = "unknown_%d" % (len(out) + 1)
+        seen_slabs[slab] += 1
+        if seen_slabs[slab] > 1:
+            slab = "%s__%d" % (slab, seen_slabs[slab])
+        entry = {"slab": slab, "columns": t["columns"], "rates": t["rates"]}
+        if any(c.startswith("col_") for c in t["columns"]):
+            entry["unmapped_headers"] = [
+                l for l, c in zip(t["labels"], t["columns"]) if c.startswith("col_")]
+        out.append(entry)
+    rec["tables"] = out
+    return rec
 
 def card_path(cards_dir, snapshot_id):
     return os.path.join(cards_dir, snapshot_id[:4], snapshot_id + ".json")
@@ -22,7 +83,9 @@ def card_path(cards_dir, snapshot_id):
 
 def write_card(cards_dir, rec):
     path = card_path(cards_dir, os.path.basename(rec["source_pdf"])[:-4])
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     with open(path, "w") as fh:
         json.dump(rec, fh, separators=(",", ":"))
         fh.write("\n")

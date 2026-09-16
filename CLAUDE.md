@@ -24,9 +24,8 @@ api/                      gitignored. built and deployed to Pages
 
 tools/parse_sbi.py        the extraction logic. all the subtlety lives here
 tools/fetch_sbi.py        fetch + validate + dedupe + archive
-tools/build_cards.py      archive PDFs -> data/cards (after a parser change)
+tools/build_cards.py      archive PDFs -> data/cards. holds extract_one()
 tools/build_api.py        cards -> the API tree
-tools/extract_all.py      parallel walk of a PDF tree -> NDJSON
 tools/seed_archive.py     one-time import of an external PDF tree
 tools/serve_api.py        local HTTP API over the NDJSON, stdlib only
 tools/verify.py           data integrity checks. run after any parser change
