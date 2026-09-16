@@ -1,0 +1,11 @@
+{
+  "description": "Rows where SBI's own published PDF breaks an expected relationship. Each has been checked against the source document: the number in the PDF really is what we extracted. verify.py excludes these so that a genuinely new violation is visible, and reports them separately. Do not 'correct' the data - add an entry here after confirming against the PDF.",
+  "buy_gt_sell": [
+    {
+      "published_date": "2026-02-11",
+      "currency": "SAR",
+      "pair": "travel_card",
+      "note": "PDF prints travel-card sell as 22.99 while every neighbouring cell is ~24.8. Column positions confirmed correct against the USD row: the cell centres line up exactly, so this is SBI's typo, not a misparse."
+    }
+  ]
+}

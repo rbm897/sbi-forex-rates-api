@@ -309,6 +309,11 @@ left in the output.
 
 ## Verification
 
+Run `python tools/verify.py` after any change to the parser — structure,
+invariants, fetch-log consistency, and a sampled re-read of the PDFs, exiting
+non-zero on failure. Known SBI source errors are listed in
+`data/known_source_quirks.json` and excluded, so a new violation is visible.
+
 - **Value fidelity.** 300 randomly sampled snapshots re-opened and checked against the raw
   PDF word tokens: 127,012 values, 0 mismatches.
 - **Column assignment.** Buy/sell ordering holds on every row that has both values —
@@ -319,6 +324,11 @@ left in the output.
   `2026-02-11` prints SAR travel-card-sell as `22.99` when every neighbouring cell says
   ~24.8. THB accounts for 785 of them, where SBI's TT and bill columns routinely disagree.
   The extractor does not silently "fix" these; the numbers are what the bank published.
+
+## Licence
+
+Code is MIT (see `LICENSE`). The archived PDFs are SBI's and are redistributed
+unmodified for provenance; `NOTICE` sets out what each licence covers.
 
 ## Data and attribution
 

@@ -1,0 +1,21 @@
+The MIT License in LICENSE covers the code in this repository: everything under
+tools/ and .github/, and the documentation.
+
+It does not cover the data.
+
+  archive/**.pdf   Published by State Bank of India. Redistributed unmodified
+                   so that every extracted number can be traced to the document
+                   it came from. Copyright remains with SBI.
+
+  data/, api/      Figures extracted from those PDFs. The underlying facts are
+                   SBI's published rates; the extraction, schema and tooling are
+                   covered by LICENSE.
+
+PDFs dated before September 2026 were imported from
+https://github.com/skbly7/sbi-tt-rates-historical, which has collected them
+since June 2020.
+
+This is an unofficial project. It is not affiliated with, endorsed by, or
+supported by State Bank of India. The rates are indicative; the PDFs themselves
+state that the applicable rate is the one prevailing at the time of
+debit or credit. Do not rely on this data for settlement.

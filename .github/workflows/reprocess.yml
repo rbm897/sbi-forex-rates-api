@@ -22,9 +22,9 @@ jobs:
   reprocess:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4        # full checkout: the PDFs are the input here
+      - uses: actions/checkout@v7        # full checkout: the PDFs are the input here
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip

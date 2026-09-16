@@ -37,7 +37,7 @@ jobs:
       # small parsed cards in data/. blob:none keeps the old PDFs from being
       # downloaded, sparse-checkout keeps them from being written to disk.
       # New files still commit into archive/ normally -- see "git add --sparse".
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           filter: blob:none
           sparse-checkout: |
@@ -46,7 +46,7 @@ jobs:
             .github
           sparse-checkout-cone-mode: true
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip
@@ -106,7 +106,7 @@ jobs:
 
       - name: Upload Pages artifact
         if: steps.fetch.outputs.new_card == 'true' || inputs.rebuild_all
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: api
 
@@ -125,4 +125,4 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
