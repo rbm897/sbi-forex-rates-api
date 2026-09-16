@@ -33,7 +33,7 @@ curl -s $BASE/v1/effective.json | jq '.dates["2026-09-13"]'    # which card appl
 | `v1/snapshots/{id}.json` | one card, both slabs, all currencies |
 | `v1/snapshots.json` | every snapshot id |
 | `v1/daily/{YYYY-MM-DD}.json` | everything captured on one day |
-| `v1/bulk/rates.{ndjson,csv}` | all 67,605 rows, flat (1.6 MB gzipped) |
+| `v1/bulk/rates.{ndjson,csv}` | every row, flat (~1.6 MB gzipped) |
 | `v1/observations.ndjson` | every fetch ever made, duplicates and failures included |
 | `v1/unavailable.json` | the 341 fetches that never returned a rate card |
 
@@ -68,8 +68,8 @@ cash — note rates carry the widest spread. **Buy** is the bank buying foreign 
 (inward remittance); **sell** is the bank selling it to you. `pc_buy` (pre-shipment credit)
 exists only before late 2023, when SBI dropped the column.
 
-**Slabs.** `10_to_20_lakh` is present on all 1,412 cards; `below_10_lakh` on 973, as SBI stopped
-publishing it in late 2023.
+**Slabs.** `10_to_20_lakh` is on every card. `below_10_lakh` appears only up to late 2023, when
+SBI stopped publishing it.
 
 **`unit`.** JPY, THB and KRW are quoted per 100 units of foreign currency, per the note in the
 PDF. Values are left exactly as printed.
@@ -91,26 +91,36 @@ last one until the next is due. Three rules, all confirmed from the data:
 So use `published_date` for "what rate was in force" and `captured_at` for "what the site was
 serving". `card_age_days` and `stale` give you the gap directly.
 
-`v1/effective.json` exists because the archive holds cards, not days: no card is dated Sunday
-2026-09-13, but a rate applied. It maps every calendar date to the card that applied, so
-weekend and holiday lookups resolve instead of 404ing.
+This is also why there is one snapshot per *card*, not per day or per fetch: SBI serves the same
+card until the next is issued, so repeated fetches collapse into one. The imported history shows
+the ratio — 4,054 fetches, 1,410 distinct cards. Nothing is lost: every attempt is logged in
+`observations.ndjson`, duplicates and failures included.
+
+`v1/effective.json` exists for the same reason: no card is dated Sunday 2026-09-13, but a rate
+applied that day. It maps every calendar date to the card in force, so weekend and holiday
+lookups resolve instead of 404ing.
 
 ## Data quality
 
-Figures are reproduced exactly as SBI published them, including SBI's own mistakes. About 0.6%
-of rows break the weak expectation `bill_buy ≤ tt_buy`; spot-checked against the PDFs, those are
-the bank's errors, not extraction bugs — 2021-11-29 prints OMR bill-buy identical to its
-TT-sell, 2026-02-11 prints SAR travel-card-sell as 22.99 among ~24.8 neighbours. Confirmed cases
+Every PDF is parsed before it is archived, so a fetch that returns something other than a rate
+card never becomes data. Of the 4,054 imported fetches, 341 were unusable: 315 were error or
+maintenance pages rendered as PDFs by SBI's WAF, 24 were empty and 2 truncated. All are listed
+in `v1/unavailable.json`.
+
+Figures are otherwise reproduced exactly as printed, including SBI's own mistakes. About 0.6% of
+rows break the weak expectation `bill_buy ≤ tt_buy`; spot-checked against the PDFs, those are the
+bank's errors, not extraction bugs — 2021-11-29 prints OMR bill-buy identical to its TT-sell,
+2026-02-11 prints SAR travel-card-sell as 22.99 among ~24.8 neighbours. Confirmed cases
 are listed in `data/known_source_quirks.json`. Nothing is silently corrected.
 
-Invariants that hold across the whole dataset: buy ≤ sell on all 182,944 pairs, no card dated
+Invariants that hold across the whole dataset: buy ≤ sell on every buy/sell pair, no card dated
 after its capture, and a sampled re-read of the PDFs confirming every number in the JSON appears
 in the page it came from. `python tools/verify.py` runs the lot.
 
 Every row is traceable: `source_url` downloads the exact PDF, and `observations.ndjson` holds
 the SHA-256 recorded when it was fetched.
 
-## Local use
+## Local use and development
 
 ```bash
 pip install -r tools/requirements.txt
@@ -120,20 +130,12 @@ curl "localhost:8787/v1/rates?currency=EUR&from=2025-01-01&field=tt_buy"
 curl "localhost:8787/v1/rates?currency=JPY&from=2026-09-01&format=csv"
 ```
 
-That gives query parameters over the same data. To rebuild the API: `./tools/convert.sh`.
+That gives query parameters over the same data. To rebuild the API: `./tools/convert.sh`, and
+`python tools/verify.py` to check it.
 
-## How it works
-
-`fetch_sbi.py` downloads the PDF, **parses it before keeping it** — SBI's WAF answers with an
-HTML error page rendered as a PDF, and 315 of the 4,054 imported files are exactly that — then
-stores it only if this card differs from the last, identified by a hash of the rates rather than
-the bytes. Every attempt is logged either way, so the record of what the site served survives
-the deduplication. `build_api.py` turns the parsed cards into the JSON tree, which GitHub Pages
-serves.
-
-Contributing or changing the parser: see **[CLAUDE.md](CLAUDE.md)**, which documents why parsing
-works off word coordinates, the date and header formats that drift across six years, and the CI
-traps.
+Changing the parser: read **[CLAUDE.md](CLAUDE.md)** first. It covers why extraction works off
+word coordinates rather than the text layer, the date and header formats that drift across six
+years, and the CI traps.
 
 ## Licence and attribution
 
