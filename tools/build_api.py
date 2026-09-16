@@ -55,8 +55,19 @@ def main():
                     help="observations.ndjson: the log of every fetch, including "
                          "duplicates and failures")
     ap.add_argument("--repo-url",
-                    default="https://github.com/skbly7/sbi-tt-rates-historical")
+                    default="https://github.com/rbm897/sbi-forex-rates-api",
+                    help="this repository, where the archived PDFs live")
+    ap.add_argument("--branch", default="main")
+    ap.add_argument("--archive-prefix", default="archive",
+                    help="path to the archive within the repository")
     args = ap.parse_args()
+
+    # source_pdf is stored relative to the archive root, so a usable link needs
+    # the repo, the branch and that prefix put back in front of it. Points at
+    # raw rather than blob: this is an API, so callers want the bytes.
+    owner_repo = args.repo_url.rstrip("/").split("github.com/")[-1]
+    raw_base = "https://raw.githubusercontent.com/%s/%s/%s" % (
+        owner_repo, args.branch, args.archive_prefix.strip("/"))
 
     if args.cards:
         from build_cards import load_cards
@@ -98,7 +109,7 @@ def main():
             "card_age_days": age,
             "stale": None if age is None else age > 0,
             "source_pdf": rec["source_pdf"],
-            "source_url": "%s/blob/master/%s" % (args.repo_url, rec["source_pdf"]),
+            "source_url": "%s/%s" % (raw_base, rec["source_pdf"]),
             "tables": [],
         }
         for tab in rec["tables"]:
@@ -229,6 +240,11 @@ def main():
     index = {
         "name": "SBI Forex Card Rates — historical archive, extracted from PDF",
         "source_repository": args.repo_url,
+        "source_pdf_note": ("source_pdf is relative to %s/ in the repository; "
+                            "source_url is a direct download of that file"
+                            % args.archive_prefix),
+        "upstream_history": ("PDFs before 2026-09 were imported from "
+                             "https://github.com/skbly7/sbi-tt-rates-historical"),
         "generated_from_pdfs": len(recs),
         "snapshots_parsed": len(ok),
         "snapshots_unavailable": len(unavailable),

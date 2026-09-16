@@ -35,6 +35,9 @@ def main():
     ap.add_argument("--log", default="data/observations.ndjson")
     ap.add_argument("--quirks", default="data/known_source_quirks.json",
                     help="rows where SBI's own PDF breaks an invariant")
+    ap.add_argument("--check-urls", type=int, default=0,
+                    help="download this many source_urls and check their SHA-256 "
+                         "against the fetch log (needs network)")
     ap.add_argument("--sample", type=int, default=100,
                     help="PDFs to re-read and compare against the JSON (0 skips)")
     ap.add_argument("--seed", type=int, default=0)
@@ -110,6 +113,62 @@ def main():
         ok &= check("every archived path exists on disk",
                     all(os.path.exists(p) for p in archived),
                     "%d missing" % sum(1 for p in archived if not os.path.exists(p)))
+
+    # A source_url must point into this repository's archive, at the same file
+    # source_pdf names. This defaulted to the upstream repo once and every link
+    # in the API 404'd.
+    snap_dir = os.path.join(args.api, "snapshots")
+    if os.path.isdir(snap_dir):
+        snaps = sorted(os.listdir(snap_dir))
+        print("\nsource links (%d snapshots)" % len(snaps))
+        mismatched = []
+        for n in snaps:
+            d = json.load(open(os.path.join(snap_dir, n)))
+            url, rel = d.get("source_url", ""), d.get("source_pdf", "")
+            if not url.endswith("/" + rel) or "raw.githubusercontent.com" not in url:
+                mismatched.append((d["snapshot_id"], url))
+        ok &= check("source_url matches source_pdf", not mismatched,
+                    "%d wrong" % len(mismatched))
+        if mismatched:
+            for sid, u in mismatched[:3]:
+                print("    %s -> %s" % (sid, u))
+        index_path = os.path.join(args.api, "index.json")
+        if os.path.exists(index_path):
+            repo = json.load(open(index_path)).get("source_repository", "")
+            owner_repo = repo.rstrip("/").split("github.com/")[-1]
+            wrong_repo = [s for s in snaps[:1] + snaps[-1:]
+                          if owner_repo not in json.load(
+                              open(os.path.join(snap_dir, s))).get("source_url", "")]
+            ok &= check("source_url points at %s" % (owner_repo or "?"),
+                        not wrong_repo)
+
+        if args.check_urls:
+            import hashlib
+            import random as _r
+            import urllib.request
+            logged = {}
+            if os.path.exists(args.log):
+                for line in open(args.log):
+                    o = json.loads(line)
+                    if o.get("archived_as") and o.get("sha256"):
+                        logged[o["archived_as"]] = o["sha256"]
+            _r.seed(args.seed)
+            picked = _r.sample(snaps, min(args.check_urls, len(snaps)))
+            bad_url = 0
+            for n in picked:
+                d = json.load(open(os.path.join(snap_dir, n)))
+                want = logged.get(os.path.join(args.archive, d["source_pdf"]))
+                try:
+                    body = urllib.request.urlopen(d["source_url"], timeout=60).read()
+                except Exception as exc:
+                    bad_url += 1
+                    print("    %s unreachable: %s" % (d["snapshot_id"], exc))
+                    continue
+                if want and hashlib.sha256(body).hexdigest() != want:
+                    bad_url += 1
+                    print("    %s hash mismatch" % d["snapshot_id"])
+            ok &= check("published PDFs match the fetch log", bad_url == 0,
+                        "%d checked" % len(picked))
 
     if args.sample:
         try:

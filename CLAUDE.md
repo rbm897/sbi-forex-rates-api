@@ -81,6 +81,13 @@ TRAVEL CARD BUY` (2024+), plus a `FOREIGN TRAVEL CARD` variant. `PC BUY`
 disappears in late 2023. They are mapped by rule in `_field_from_label()`, not
 by string match, so the series stay continuous. Any new wording goes there.
 
+**`source_url` must point at this repo's archive.** `build_api.py` builds it
+from `--repo-url` + `--branch` + `--archive-prefix`, because `source_pdf` is
+stored relative to the archive root, not the repo root. This defaulted to the
+upstream repo on `master` after the archive moved here, and every link in the
+published API 404'd. `verify.py` now checks it offline, and
+`--check-urls N` downloads N of them and compares SHA-256 against the fetch log.
+
 **Pushing something large fails with HTTP 400.** git's default
 `http.postBuffer` is 1 MB. Set `git config http.postBuffer 524288000` and
 `git config http.version HTTP/1.1`. Already set in this working copy.
