@@ -1,0 +1,50 @@
+name: Reprocess archive
+
+# Manual only. Re-derives every card in data/cards/ from the archived PDFs,
+# which is what you run after changing the parser. This is the one job that
+# genuinely needs the PDFs, so it takes the full checkout.
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Re-derive cards that already exist (needed after a parser change)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sbi-rates
+  cancel-in-progress: false
+
+jobs:
+  reprocess:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4        # full checkout: the PDFs are the input here
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - run: pip install -r tools/requirements.txt
+
+      - name: Re-derive cards from the archived PDFs
+        run: |
+          python tools/build_cards.py --archive archive --cards data/cards \
+            ${{ inputs.force && '--force' || '' }}
+
+      - name: Commit any changed cards
+        run: |
+          set -euo pipefail
+          git config user.name  'sbi-rates-bot'
+          git config user.email 'noreply@github.com'
+          git add data/cards
+          if git diff --cached --quiet; then
+            echo "cards unchanged"
+            exit 0
+          fi
+          git commit -m "cards: re-derived from archive"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

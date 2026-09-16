@@ -1,0 +1,128 @@
+name: Fetch SBI rates and publish
+
+# SBI issues one card per bank working day, normally 09:00-10:00 IST, and
+# occasionally revises it later in the day. These times are UTC (IST-5:30), so
+# this runs at roughly 09:45, 12:45 and 17:45 IST. Sunday is skipped: no rate
+# card has ever been issued on one.
+on:
+  schedule:
+    - cron: '15 4 * * 1-6'
+    - cron: '15 7 * * 1-6'
+    - cron: '15 12 * * 1-6'
+  workflow_dispatch:
+    inputs:
+      rebuild_all:
+        description: 'Rebuild and redeploy the API even if no new card'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+# Never let two runs race on the archive or the Pages deployment.
+concurrency:
+  group: sbi-rates
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    outputs:
+      new_card: ${{ steps.fetch.outputs.new_card }}
+    steps:
+      # The archive is ~450 MB of PDFs and grows ~45 MB/year, and this job never
+      # reads any of it: it writes one new PDF, and rebuilds the API from the
+      # small parsed cards in data/. blob:none keeps the old PDFs from being
+      # downloaded, sparse-checkout keeps them from being written to disk.
+      # New files still commit into archive/ normally -- see "git add --sparse".
+      - uses: actions/checkout@v4
+        with:
+          filter: blob:none
+          sparse-checkout: |
+            tools
+            data
+            .github
+          sparse-checkout-cone-mode: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - run: pip install -r tools/requirements.txt
+
+      - name: Fetch today's card
+        id: fetch
+        # A failed fetch must not abort the job: the attempt still has to be
+        # written to the log and committed. The job is failed at the end instead.
+        continue-on-error: true
+        run: |
+          python tools/fetch_sbi.py \
+            --archive archive --log data/observations.ndjson --cards data/cards
+
+      - name: Commit archive, card and fetch log
+        run: |
+          set -euo pipefail
+          git config user.name  'sbi-rates-bot'
+          git config user.email 'noreply@github.com'
+
+          # --sparse is required: archive/ is outside the sparse cone, and a
+          # plain `git add` there stages NOTHING and still exits 0, which would
+          # silently drop the PDF while the run stayed green.
+          git add --sparse archive data
+
+          if git diff --cached --quiet; then
+            echo "nothing to commit"
+            exit 0
+          fi
+
+          # Guard against exactly that silent drop: if a PDF was archived, it
+          # must be in the index.
+          if [ "${{ steps.fetch.outputs.new_card }}" = "true" ]; then
+            staged_pdfs=$(git diff --cached --name-only --diff-filter=A -- 'archive/**' | wc -l)
+            if [ "$staged_pdfs" -eq 0 ]; then
+              echo "::error::A new card was archived but no PDF is staged. Refusing to commit a gap in the archive."
+              exit 1
+            fi
+          fi
+
+          git commit -m "rates: ${{ steps.fetch.outputs.status || 'fetch attempt' }} ${{ steps.fetch.outputs.published_date }}"
+
+          # Another scheduled run may have pushed while this one was working.
+          for i in 1 2 3; do
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && break
+            sleep 5
+          done
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - name: Rebuild the API
+        if: steps.fetch.outputs.new_card == 'true' || inputs.rebuild_all
+        # Reads data/cards/, not archive/ -- so this works on the sparse checkout.
+        run: |
+          python tools/build_api.py --cards data/cards \
+            --observations data/observations.ndjson --out api
+
+      - name: Upload Pages artifact
+        if: steps.fetch.outputs.new_card == 'true' || inputs.rebuild_all
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: api
+
+      - name: Fail the run if the fetch did not succeed
+        if: steps.fetch.outcome == 'failure'
+        run: |
+          echo "::error::Could not fetch a valid rate card. The attempt is recorded in data/observations.ndjson."
+          exit 1
+
+  publish:
+    needs: fetch
+    if: needs.fetch.outputs.new_card == 'true' || inputs.rebuild_all
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
