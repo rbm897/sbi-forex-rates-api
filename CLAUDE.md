@@ -87,6 +87,22 @@ upstream repo on `master` after the archive moved here, and every link in the
 published API 404'd. `verify.py` now checks it offline, and
 `--check-urls N` downloads N of them and compares SHA-256 against the fetch log.
 
+**CI rebuilds on any committed change, not just a new card.** `effective.json`
+runs to the latest *observation*, so on a Sunday, a 2nd/4th Saturday or a
+holiday — when every fetch is a duplicate — skipping the rebuild leaves the
+published map short of today, which are exactly the days it exists to answer.
+The workflow gates on `steps.commit.outputs.changed`, not on `new_card`.
+
+**`effective.json` maps the last card of a day, not the first.** SBI revises a
+card intraday on ~36 dates in the archive; the revision is what was in force at
+the close of that day and through the non-working days that follow. Build it by
+assignment in capture order, never `setdefault`.
+
+**`verify.py` runs in CI under a sparse checkout**, where `archive/` is not on
+disk. Any check that reads the PDFs must be skipped when the archive is partial
+(`full_archive`), or it fails on every run. Two checks needed this; the gate
+caught the second one itself.
+
 **Pushing something large fails with HTTP 400.** git's default
 `http.postBuffer` is 1 MB. Set `git config http.postBuffer 524288000` and
 `git config http.version HTTP/1.1`. Already set in this working copy.
