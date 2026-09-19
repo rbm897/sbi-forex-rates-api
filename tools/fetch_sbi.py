@@ -16,6 +16,7 @@ survives even when the document itself is a duplicate.
 import argparse
 import datetime
 import hashlib
+import http.client
 import json
 import os
 import sys
@@ -64,7 +65,13 @@ def fetch(urls, attempts=4):
                     last = "not a PDF (content-type %s, %d bytes)" % (ctype, len(body))
                     continue
                 return body, url
-            except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            # http.client raises IncompleteRead, BadStatusLine and friends for a
+            # connection cut mid-body or a malformed response. Those derive from
+            # HTTPException, not OSError, so without this they escape the retry
+            # loop entirely. (RemoteDisconnected is a ConnectionResetError and
+            # was already covered.)
+            except (urllib.error.URLError, OSError, TimeoutError,
+                    http.client.HTTPException) as exc:
                 last = "%s: %s" % (type(exc).__name__, exc)
         if attempt < attempts - 1:
             time.sleep(5 * (2 ** attempt))

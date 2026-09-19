@@ -9,6 +9,7 @@ it works in CI or a pre-push hook.
 """
 import argparse
 import collections
+import datetime
 import json
 import os
 import random
@@ -51,8 +52,15 @@ def main():
              for d, _, ns in os.walk(args.cards) for p in ns if p.endswith(".json")}
     ok &= check("every archived PDF has a parsed card", pdfs <= cards,
                 "missing: %d" % len(pdfs - cards))
-    ok &= check("every parsed card has an archived PDF", cards <= pdfs,
-                "orphans: %d" % len(cards - pdfs))
+    # CI checks out sparsely and has almost no PDFs on disk, so the reverse only
+    # means something when the archive is actually there.
+    full_archive = len(pdfs) >= len(cards)
+    if full_archive:
+        ok &= check("every parsed card has an archived PDF", cards <= pdfs,
+                    "orphans: %d" % len(cards - pdfs))
+    else:
+        print("  %-46s %s" % ("archive is partial (%d of %d PDFs on disk)"
+                              % (len(pdfs), len(cards)), "skipped"))
 
     rows_path = os.path.join(args.api, "bulk", "rates.ndjson")
     if not os.path.exists(rows_path):
@@ -170,6 +178,37 @@ def main():
             ok &= check("published PDFs match the fetch log", bad_url == 0,
                         "%d checked" % len(picked))
 
+    eff_path = os.path.join(args.api, "effective.json")
+    if os.path.exists(eff_path):
+        eff = json.load(open(eff_path))["dates"]
+        days = sorted(eff)
+        print("\neffective date map (%d dates)" % len(days))
+        first = datetime.date.fromisoformat(days[0])
+        last = datetime.date.fromisoformat(days[-1])
+        expected = (last - first).days + 1
+        ok &= check("no gaps between first and last date", len(days) == expected,
+                    "%d dates span %d days" % (len(days), expected))
+        ok &= check("every mapped card exists",
+                    all(os.path.exists(os.path.join(snap_dir, s + ".json"))
+                        for s in set(eff.values())) if os.path.isdir(snap_dir) else True)
+        # A card cannot be in force before it was published.
+        acausal = []
+        for day, sid in eff.items():
+            f = os.path.join(snap_dir, sid + ".json")
+            if not os.path.exists(f):
+                continue
+            pub = json.load(open(f)).get("published_date")
+            if pub and pub > day:
+                acausal.append((day, sid, pub))
+        ok &= check("no card in force before it was published", not acausal,
+                    "%d bad" % len(acausal))
+        for a in acausal[:3]:
+            print("    %s -> %s published %s" % a)
+        stale_days = (datetime.date.today() - last).days
+        print("  %-46s %s" % ("map reaches %s (%d day%s behind today)"
+                              % (days[-1], stale_days, "" if stale_days == 1 else "s"),
+                              "note" if stale_days <= 1 else "STALE"))
+
     if args.sample:
         try:
             import pymupdf
@@ -180,6 +219,13 @@ def main():
         card_files = [os.path.join(d, n)
                       for d, _, ns in os.walk(args.cards) for n in ns
                       if n.endswith(".json")]
+        card_files = [c for c in card_files
+                      if os.path.exists(os.path.join(
+                          args.archive, json.load(open(c))["source_pdf"]))]
+        if not card_files:
+            print("  no archived PDFs on disk to sample (sparse checkout?)")
+            print("\n%s" % ("all checks passed" if ok else "FAILURES -- see above"))
+            return 0 if ok else 1
         random.seed(args.seed)
         picked = random.sample(card_files, min(args.sample, len(card_files)))
         checked = bad = 0

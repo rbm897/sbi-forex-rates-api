@@ -13,6 +13,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 concurrency:
   group: sbi-rates
@@ -36,6 +38,9 @@ jobs:
           python tools/build_cards.py --archive archive --cards data/cards \
             ${{ inputs.force && '--force' || '' }}
 
+      - name: Verify the re-derived cards
+        run: python tools/verify.py --sample 200
+
       - name: Commit any changed cards
         run: |
           set -euo pipefail
@@ -44,7 +49,28 @@ jobs:
           git add data/cards
           if git diff --cached --quiet; then
             echo "cards unchanged"
-            exit 0
+          else
+            git commit -m "cards: re-derived from archive"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
-          git commit -m "cards: re-derived from archive"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      # Re-deriving without republishing would leave the API serving the old
+      # parse until the next new card happened to trigger a build.
+      - name: Rebuild the API
+        run: |
+          python tools/build_api.py --cards data/cards \
+            --observations data/observations.ndjson --out api
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: api
+
+  publish:
+    needs: reprocess
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v5

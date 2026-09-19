@@ -21,6 +21,13 @@ from urllib.parse import parse_qs, urlparse
 FIELDS = ["tt_buy", "tt_sell", "bill_buy", "bill_sell", "travel_card_buy",
           "travel_card_sell", "currency_note_buy", "currency_note_sell", "pc_buy"]
 
+# Fixed CSV column order. A row only carries the fields its card had -- pc_buy
+# vanished in late 2023, and a blank cell in the PDF omits its key -- so columns
+# cannot be taken from whichever row happens to come first in a page.
+CSV_COLUMNS = ["snapshot_id", "captured_at", "published_date", "published_time",
+               "card_age_days", "stale", "slab", "currency", "currency_name",
+               "unit"] + FIELDS
+
 ROWS = []
 BY_CURRENCY = defaultdict(list)
 BY_SNAPSHOT = defaultdict(list)
@@ -52,7 +59,24 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
-        self.wfile.write(body)
+        if not getattr(self, "_head_only", False):
+            self.wfile.write(body)
+
+    def do_HEAD(self):
+        self._head_only = True
+        try:
+            self.do_GET()
+        finally:
+            self._head_only = False
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "*")
+        self.send_header("Access-Control-Max-Age", "86400")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_GET(self):
         u = urlparse(self.path)
@@ -76,8 +100,12 @@ class Handler(BaseHTTPRequestHandler):
                     "first": ROWS[0]["snapshot_id"],
                     "last": ROWS[-1]["snapshot_id"],
                 })
-            if path.startswith("/v1/snapshot/"):
+            if path.startswith("/v1/snapshot/") or path.startswith("/v1/snapshots/"):
+                # Accept the static tree's spelling (/v1/snapshots/{id}.json) so
+                # the same URL works against either.
                 sid = path.rsplit("/", 1)[-1]
+                if sid.endswith(".json"):
+                    sid = sid[:-5]
                 rows = BY_SNAPSHOT.get(sid)
                 if not rows:
                     return self._send(404, {"error": "unknown snapshot", "snapshot_id": sid})
@@ -96,7 +124,10 @@ class Handler(BaseHTTPRequestHandler):
                 if to:
                     rows = [r for r in rows if r["snapshot_id"][:10] <= to]
                 if path == "/v1/latest":
-                    rows = rows[-1:]
+                    # rows[-1] is one row of the newest card -- whichever
+                    # currency sorts last. Take the whole snapshot instead.
+                    latest_id = rows[-1]["snapshot_id"] if rows else None
+                    rows = [r for r in rows if r["snapshot_id"] == latest_id]
                 field = q.get("field")
                 if field:
                     if field not in FIELDS:
@@ -105,13 +136,26 @@ class Handler(BaseHTTPRequestHandler):
                     rows = [{"snapshot_id": r["snapshot_id"], "slab": r["slab"],
                              "currency": r["currency"], field: r.get(field)} for r in rows]
                 total = len(rows)
-                off = int(q.get("offset", 0))
-                lim = int(q.get("limit", 500))
+                try:
+                    off = int(q.get("offset", 0))
+                    lim = int(q.get("limit", 500))
+                except ValueError:
+                    return self._send(400, {"error": "offset and limit must be integers",
+                                            "offset": q.get("offset"),
+                                            "limit": q.get("limit")})
+                if off < 0 or lim < 0:
+                    return self._send(400, {"error": "offset and limit must not be negative"})
+                lim = min(lim, 10000)
                 page = rows[off:off + lim]
                 if q.get("format") == "csv":
                     buf = io.StringIO()
-                    cols = list(page[0].keys()) if page else []
-                    w = csv.DictWriter(buf, fieldnames=cols)
+                    cols = [c for c in CSV_COLUMNS
+                            if any(c in r for r in page)] or CSV_COLUMNS
+                    if field:
+                        cols = [c for c in ("snapshot_id", "slab", "currency",
+                                            field) if any(c in r for r in page)]
+                    w = csv.DictWriter(buf, fieldnames=cols, restval="",
+                                       extrasaction="ignore")
                     w.writeheader()
                     w.writerows(page)
                     return self._send(200, buf.getvalue(), "text/csv")

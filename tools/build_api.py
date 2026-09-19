@@ -191,9 +191,13 @@ def main():
     # no failures to report -- only successful cards are written there -- so the
     # fetch log is the authority whenever it is available.
     if obs:
-        unavailable = [{"source_pdf": o.get("imported_from"),
+        # Nothing was archived for these, so there is no source_pdf to give.
+        # imported_from names the upstream file when the failure came in with the
+        # history; for a live failure the snapshot id is the only handle.
+        unavailable = [{"snapshot_id": o.get("snapshot_id"),
                         "captured_date": o["captured_at"][:10],
                         "captured_time": o["captured_at"][11:16],
+                        "imported_from": o.get("imported_from"),
                         "reason": o.get("error", "failed")}
                        for o in obs if o.get("status") == "failed"]
     else:
@@ -209,10 +213,14 @@ def main():
     # 2nd/4th Saturdays or bank holidays, so without this a consumer asking for a
     # weekend date gets nothing rather than the card that actually applied.
     effective, cur = {}, None
+    # Last card wins, not the first: SBI sometimes revises a card intraday, and
+    # the revision is what was in force at the end of that day and through the
+    # non-working days that follow. `ok` is in capture order, so plain assignment
+    # keeps the latest.
     by_pub = {}
     for rec in ok:
         if rec.get("published_date"):
-            by_pub.setdefault(rec["published_date"], snapshot_key(rec))
+            by_pub[rec["published_date"]] = snapshot_key(rec)
     day = _date(ok[0]["captured_date"])
     last = _date(ok[-1]["captured_date"])
     if observations:

@@ -30,7 +30,7 @@ jobs:
   fetch:
     runs-on: ubuntu-latest
     outputs:
-      new_card: ${{ steps.fetch.outputs.new_card }}
+      changed: ${{ steps.commit.outputs.changed }}
     steps:
       # The archive is ~450 MB of PDFs and grows ~45 MB/year, and this job never
       # reads any of it: it writes one new PDF, and rebuilds the API from the
@@ -63,6 +63,7 @@ jobs:
             --archive archive --log data/observations.ndjson --cards data/cards
 
       - name: Commit archive, card and fetch log
+        id: commit
         run: |
           set -euo pipefail
           git config user.name  'sbi-rates-bot'
@@ -75,8 +76,10 @@ jobs:
 
           if git diff --cached --quiet; then
             echo "nothing to commit"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
 
           # Guard against exactly that silent drop: if a PDF was archived, it
           # must be in the index.
@@ -98,14 +101,24 @@ jobs:
           git push origin "HEAD:${GITHUB_REF_NAME}"
 
       - name: Rebuild the API
-        if: steps.fetch.outputs.new_card == 'true' || inputs.rebuild_all
+        # Any committed change rebuilds, not just a new card: effective.json
+        # extends to the latest observation, so on a Sunday or a holiday -- when
+        # every fetch is a duplicate -- skipping the rebuild leaves the published
+        # map short of today, and those are exactly the days it exists to answer.
+        if: steps.commit.outputs.changed == 'true' || inputs.rebuild_all
         # Reads data/cards/, not archive/ -- so this works on the sparse checkout.
         run: |
           python tools/build_api.py --cards data/cards \
             --observations data/observations.ndjson --out api
 
+      - name: Verify before publishing
+        if: steps.commit.outputs.changed == 'true' || inputs.rebuild_all
+        # --sample 0 skips the PDF re-read, which the sparse checkout cannot do
+        # anyway; the invariant and effective-map checks still run.
+        run: python tools/verify.py --sample 0
+
       - name: Upload Pages artifact
-        if: steps.fetch.outputs.new_card == 'true' || inputs.rebuild_all
+        if: steps.commit.outputs.changed == 'true' || inputs.rebuild_all
         uses: actions/upload-pages-artifact@v5
         with:
           path: api
@@ -118,7 +131,7 @@ jobs:
 
   publish:
     needs: fetch
-    if: needs.fetch.outputs.new_card == 'true' || inputs.rebuild_all
+    if: needs.fetch.outputs.changed == 'true' || inputs.rebuild_all
     runs-on: ubuntu-latest
     environment:
       name: github-pages

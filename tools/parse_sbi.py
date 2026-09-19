@@ -6,6 +6,7 @@ produced by Word and the naive text order merges adjacent cells.
 import datetime
 import re
 import unicodedata
+from collections import Counter
 
 import pymupdf
 
@@ -162,7 +163,6 @@ def parse_page(page):
         return None
 
     # Column centres: take the modal cell layout across data rows.
-    from collections import Counter
     cell_sets = []
     for row, idx, _ in data_rows:
         centres = [((w[0] + w[2]) / 2, _to_float(w[4])) for w in row[idx + 1:] if NUM_RE.match(w[4])]
@@ -183,7 +183,6 @@ def parse_page(page):
 
     # Header labels: words above the first data row, right of the currency column.
     first_data_y = min(min(w[1] for w in row) for row, _, _ in data_rows)
-    name_left = min(w[0] for row, idx, _ in data_rows for w in row[:idx + 1])
     pair_right = max(row[idx][2] for row, idx, _ in data_rows)
     above = [w for w in words if w[3] <= first_data_y + 1]
     # The column headers are the contiguous block of text lines sitting directly
