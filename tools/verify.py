@@ -118,9 +118,13 @@ def main():
         archived = {o["archived_as"] for o in obs if o.get("archived_as")}
         print("\nfetch log (%d observations: %s)"
               % (len(obs), dict(counts)))
-        ok &= check("every archived path exists on disk",
-                    all(os.path.exists(p) for p in archived),
-                    "%d missing" % sum(1 for p in archived if not os.path.exists(p)))
+        if full_archive:
+            ok &= check("every archived path exists on disk",
+                        all(os.path.exists(p) for p in archived),
+                        "%d missing" % sum(1 for p in archived
+                                           if not os.path.exists(p)))
+        else:
+            print("  %-46s %s" % ("archived paths on disk", "skipped (partial archive)"))
 
     # A source_url must point into this repository's archive, at the same file
     # source_pdf names. This defaulted to the upstream repo once and every link
