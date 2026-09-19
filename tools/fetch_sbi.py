@@ -18,6 +18,7 @@ import datetime
 import hashlib
 import http.client
 import json
+import re
 import os
 import sys
 import time
@@ -46,6 +47,7 @@ HEADERS = {
 
 IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 MIN_ROWS = 20
+STAMPED_NAME = re.compile(r"^(\d{4})-(\d{2})-(\d{2})-(\d{2}):?(\d{2})\.pdf$")
 
 
 def download(url, timeout=45):
@@ -152,6 +154,14 @@ def main():
     args = ap.parse_args()
 
     now = datetime.datetime.now(IST)
+    # Re-reading an already-stamped file (--from-file archive/2022/03/...pdf)
+    # should keep that file's moment, not stamp it with today's, or it lands in
+    # the archive under the wrong date.
+    stamped = STAMPED_NAME.match(os.path.basename(args.from_file or ""))
+    if stamped:
+        y, mo, d, hh, mm = stamped.groups()
+        now = datetime.datetime(int(y), int(mo), int(d), int(hh), int(mm),
+                                tzinfo=IST)
     captured_date = now.strftime("%Y-%m-%d")
     stamp = now.strftime("%Y-%m-%d-%H%M")
     entry = {"captured_at": now.isoformat(timespec="seconds"), "snapshot_id": stamp}

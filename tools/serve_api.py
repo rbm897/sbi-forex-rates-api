@@ -31,6 +31,7 @@ CSV_COLUMNS = ["snapshot_id", "captured_at", "published_date", "published_time",
 ROWS = []
 BY_CURRENCY = defaultdict(list)
 BY_SNAPSHOT = defaultdict(list)
+CURRENCIES = []
 
 
 def load(path):
@@ -41,6 +42,11 @@ def load(path):
             BY_CURRENCY[r["currency"]].append(r)
             BY_SNAPSHOT[r["snapshot_id"]].append(r)
     ROWS.sort(key=lambda r: r["snapshot_id"])
+    seen = {}
+    for r in ROWS:
+        seen.setdefault(r["currency"], r["currency_name"])
+    CURRENCIES.extend({"code": c, "name": n, "observations": len(BY_CURRENCY[c])}
+                      for c, n in sorted(seen.items()))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -82,23 +88,22 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         path = u.path.rstrip("/") or "/"
+        # The static tree spells every endpoint with .json; accept either here so
+        # the same URL works against both.
+        if path.endswith(".json") and not path.startswith("/v1/snapshot"):
+            path = path[:-5]
         try:
             if path == "/health":
                 return self._send(200, {"ok": True, "rows": len(ROWS)})
             if path == "/v1/currencies":
-                seen = {}
-                for r in ROWS:
-                    seen.setdefault(r["currency"], r["currency_name"])
-                return self._send(200, [{"code": c, "name": n,
-                                         "observations": len(BY_CURRENCY[c])}
-                                        for c, n in sorted(seen.items())])
+                return self._send(200, CURRENCIES)
             if path == "/v1/stats":
                 return self._send(200, {
                     "rows": len(ROWS),
                     "snapshots": len(BY_SNAPSHOT),
                     "currencies": len(BY_CURRENCY),
-                    "first": ROWS[0]["snapshot_id"],
-                    "last": ROWS[-1]["snapshot_id"],
+                    "first": ROWS[0]["snapshot_id"] if ROWS else None,
+                    "last": ROWS[-1]["snapshot_id"] if ROWS else None,
                 })
             if path.startswith("/v1/snapshot/") or path.startswith("/v1/snapshots/"):
                 # Accept the static tree's spelling (/v1/snapshots/{id}.json) so

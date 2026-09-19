@@ -18,9 +18,13 @@ curl -s $BASE/v1/effective.json | jq '.dates["2026-09-13"]'    # which card appl
 
 | | |
 |---|---|
-| Coverage | 2020-06-02 → today, 1,412 cards, 67,605 rate rows, 31 currencies |
+| Coverage | 2020-06-02 → today, 1,400+ cards, 67,000+ rate rows, 31 currencies |
 | Updated | 04:15, 07:15, 12:15 UTC, Mon–Sat |
 | Source | `FOREX_CARD_RATES.pdf` from sbi.bank.in, archived in `archive/` |
+
+Exact counts are in [`v1/index.json`](https://rbm897.github.io/sbi-forex-rates-api/v1/index.json),
+which is regenerated on every update — the figures above are rounded because the archive grows
+about a card a day.
 
 ## Endpoints
 

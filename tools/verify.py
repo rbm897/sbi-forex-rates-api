@@ -16,6 +16,7 @@ import random
 import re
 import sys
 
+IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 NUM = re.compile(r"^-?\d+(?:\.\d+)?$")
 PAIRS = [("tt_buy", "tt_sell"), ("bill_buy", "bill_sell"),
          ("travel_card_buy", "travel_card_sell"),
@@ -195,20 +196,25 @@ def main():
         ok &= check("every mapped card exists",
                     all(os.path.exists(os.path.join(snap_dir, s + ".json"))
                         for s in set(eff.values())) if os.path.isdir(snap_dir) else True)
-        # A card cannot be in force before it was published.
-        acausal = []
-        for day, sid in eff.items():
-            f = os.path.join(snap_dir, sid + ".json")
-            if not os.path.exists(f):
-                continue
-            pub = json.load(open(f)).get("published_date")
-            if pub and pub > day:
-                acausal.append((day, sid, pub))
+        # A card cannot be in force before it was published. Read the dates once
+        # from snapshots.json rather than reopening a snapshot file per calendar
+        # day -- 2,301 days share 1,380 cards, so most of those reads repeat.
+        list_path = os.path.join(args.api, "snapshots.json")
+        if os.path.exists(list_path):
+            pubs = {s["snapshot_id"]: s.get("published_date")
+                    for s in json.load(open(list_path))["snapshots"]}
+        else:
+            pubs = {}
+        acausal = [(day, sid, pubs[sid]) for day, sid in eff.items()
+                   if pubs.get(sid) and pubs[sid] > day]
         ok &= check("no card in force before it was published", not acausal,
                     "%d bad" % len(acausal))
         for a in acausal[:3]:
             print("    %s -> %s published %s" % a)
-        stale_days = (datetime.date.today() - last).days
+        # The archive is stamped in IST; a UTC clock reads a day behind from
+        # 18:30 UTC, which would make a current map look like it came from the
+        # future.
+        stale_days = (datetime.datetime.now(IST).date() - last).days
         print("  %-46s %s" % ("map reaches %s (%d day%s behind today)"
                               % (days[-1], stale_days, "" if stale_days == 1 else "s"),
                               "note" if stale_days <= 1 else "STALE"))

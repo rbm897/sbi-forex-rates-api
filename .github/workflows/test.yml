@@ -1,0 +1,53 @@
+name: Test
+
+# Runs on changes to the code, not to the data. The scheduled fetch commits to
+# archive/ and data/ three times a day; those commits change nothing this job
+# would test, so the paths filter keeps them from triggering it.
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/**'
+      - '.github/workflows/**'
+      - 'data/known_source_quirks.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # Full checkout: verify re-reads real PDFs, which a sparse one would not have.
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - run: pip install -r tools/requirements.txt
+
+      - name: Rebuild the API from the committed cards
+        run: ./tools/convert.sh
+
+      - name: Verify
+        run: python tools/verify.py --sample 100
+
+      # A parser change that alters the output must show up as a diff in
+      # data/cards, not as a surprise at the next reprocess.
+      - name: Check the committed cards match what the parser produces now
+        run: |
+          set -euo pipefail
+          python tools/build_cards.py --archive archive --cards data/cards --force
+          if ! git diff --quiet -- data/cards; then
+            echo "::error::Re-deriving data/cards from the PDFs changes them. Run './tools/convert.sh --from-pdfs' and commit the result, or run the Reprocess archive workflow."
+            git diff --stat -- data/cards | tail -5
+            exit 1
+          fi
+          echo "committed cards match the current parser"
