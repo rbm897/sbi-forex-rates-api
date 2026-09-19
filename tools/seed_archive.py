@@ -15,7 +15,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import parse_sbi
-from fetch_sbi import card_fingerprint, validate
+from fetch_sbi import card_fingerprint, repo_relative, validate
 
 FNAME_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?:-(\d{2}):?(\d{2}))?\.pdf$")
 
@@ -95,7 +95,7 @@ def main():
                     dest = os.path.join(args.archive, sid[:4], sid[5:7], sid + ".pdf")
                     os.makedirs(os.path.dirname(dest), exist_ok=True)
                     shutil.copyfile(path, dest)
-                    seen[fp] = os.path.relpath(dest)
+                    seen[fp] = repo_relative(dest)
                     entry["status"] = "new_card"
                     entry["archived_as"] = seen[fp]
                     kept += 1

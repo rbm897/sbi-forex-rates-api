@@ -108,6 +108,24 @@ def card_fingerprint(tables):
     return hashlib.sha256(blob).hexdigest()
 
 
+def repo_relative(path):
+    """Path as written into the log: relative to the repository root.
+
+    The log is committed and read back from the root -- verify.py checks that
+    each archived path still exists -- so it must not depend on the directory
+    the tool happened to be invoked from.
+    """
+    target = os.path.abspath(path)
+    d = os.path.dirname(target)
+    while True:
+        if os.path.exists(os.path.join(d, ".git")):
+            return os.path.relpath(target, d)
+        parent = os.path.dirname(d)
+        if parent == d:
+            return os.path.relpath(target)
+        d = parent
+
+
 def append_log(path, entry):
     parent = os.path.dirname(path)
     if parent:
@@ -205,12 +223,12 @@ def main():
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         os.replace(tmp, dest)
         entry["status"] = "new_card" if new_card else "duplicate_archived"
-        entry["archived_as"] = os.path.relpath(dest)
+        entry["archived_as"] = repo_relative(dest)
         # Write the parsed card next to the log so the API can be rebuilt
         # without re-reading the archive.
         rec = extract_one(args.archive, os.path.relpath(dest, args.archive))
         if rec["status"] == "ok":
-            entry["card_json"] = os.path.relpath(write_card(args.cards, rec))
+            entry["card_json"] = repo_relative(write_card(args.cards, rec))
         else:
             entry["card_json_error"] = rec["status"]
     else:

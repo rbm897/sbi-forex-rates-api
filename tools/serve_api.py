@@ -89,8 +89,9 @@ class Handler(BaseHTTPRequestHandler):
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         path = u.path.rstrip("/") or "/"
         # The static tree spells every endpoint with .json; accept either here so
-        # the same URL works against both.
-        if path.endswith(".json") and not path.startswith("/v1/snapshot"):
+        # the same URL works against both. Safe for /v1/snapshots/{id}.json too,
+        # since that handler takes the id from what is left.
+        if path.endswith(".json"):
             path = path[:-5]
         try:
             if path == "/health":
@@ -105,6 +106,16 @@ class Handler(BaseHTTPRequestHandler):
                     "first": ROWS[0]["snapshot_id"] if ROWS else None,
                     "last": ROWS[-1]["snapshot_id"] if ROWS else None,
                 })
+            if path == "/v1/snapshots":
+                out = []
+                for sid in sorted(BY_SNAPSHOT):
+                    rows = BY_SNAPSHOT[sid]
+                    out.append({"snapshot_id": sid,
+                                "captured_at": rows[0].get("captured_at"),
+                                "published_date": rows[0].get("published_date"),
+                                "published_time": rows[0].get("published_time"),
+                                "slabs": sorted({r["slab"] for r in rows})})
+                return self._send(200, {"count": len(out), "snapshots": out})
             if path.startswith("/v1/snapshot/") or path.startswith("/v1/snapshots/"):
                 # Accept the static tree's spelling (/v1/snapshots/{id}.json) so
                 # the same URL works against either.
@@ -169,7 +180,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, {"error": "not found", "path": path,
                                     "endpoints": ["/health", "/v1/stats", "/v1/currencies",
                                                   "/v1/rates", "/v1/latest",
-                                                  "/v1/snapshot/{id}"]})
+                                                  "/v1/snapshots",
+                                                  "/v1/snapshots/{id}"]})
         except Exception as exc:
             self._send(500, {"error": "%s: %s" % (type(exc).__name__, exc)})
 
