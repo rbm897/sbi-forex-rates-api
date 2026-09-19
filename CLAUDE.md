@@ -87,6 +87,23 @@ upstream repo on `master` after the archive moved here, and every link in the
 published API 404'd. `verify.py` now checks it offline, and
 `--check-urls N` downloads N of them and compares SHA-256 against the fetch log.
 
+**The fetch workflow commits before it verifies. Do not "fix" that.** It looks
+inconsistent with `reprocess.yml`, which verifies first, and the asymmetry is
+deliberate:
+
+- *fetch* records something perishable. SBI serves one card until the next is
+  issued, so a card not archived now is gone. And SBI's own cards sometimes
+  break an invariant — 2026-02-11 printed SAR travel-card sell *below* its buy,
+  which would have failed verify on the day it arrived, before the quirk was
+  known. Verifying first would discard that day's genuine document because the
+  bank made a typo, and every later run would fetch the same card and fail the
+  same way, leaving a permanent hole.
+- *reprocess* re-derives cards from PDFs that are already archived. Nothing
+  perishable is at stake, so a bad re-derivation should never be committed.
+
+Committing is recording; deploying is publishing. A verify failure blocks the
+deploy — callers keep the last good build — and leaves the record intact.
+
 **CI rebuilds on any committed change, not just a new card.** `effective.json`
 runs to the latest *observation*, so on a Sunday, a 2nd/4th Saturday or a
 holiday — when every fetch is a duplicate — skipping the rebuild leaves the

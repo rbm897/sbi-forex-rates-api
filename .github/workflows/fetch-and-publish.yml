@@ -62,6 +62,14 @@ jobs:
           python tools/fetch_sbi.py \
             --archive archive --log data/observations.ndjson --cards data/cards
 
+      # Deliberately BEFORE the rebuild and verify, unlike reprocess.yml.
+      # Committing here is recording, not publishing. SBI serves one card until
+      # the next is issued, so a card not archived now is gone; and SBI's own
+      # cards sometimes break an invariant (2026-02-11 printed SAR travel-card
+      # sell below its buy). Verifying first would discard that day's genuine
+      # document because the bank made a typo, and the next run would fetch the
+      # same card and fail again, leaving a permanent hole in the archive.
+      # A verify failure must block the DEPLOY, which it does, not the record.
       - name: Commit archive, card and fetch log
         id: commit
         run: |
@@ -112,10 +120,22 @@ jobs:
             --observations data/observations.ndjson --out api
 
       - name: Verify before publishing
+        id: verify
         if: steps.commit.outputs.changed == 'true' || inputs.rebuild_all
         # --sample 0 skips the PDF re-read, which the sparse checkout cannot do
         # anyway; the invariant and effective-map checks still run.
         run: python tools/verify.py --sample 0
+
+      - name: Explain a verification failure
+        if: failure() && steps.verify.outcome == 'failure'
+        run: |
+          echo "::error::Verification failed, so Pages was not updated and callers still see the last good build. The card itself IS archived and committed — read it before changing anything."
+          echo "The PDF is at archive/ in this repository; the run log above names the failing rows."
+          echo ""
+          echo "If the PDF really does print those numbers, it is SBI's error, not ours:"
+          echo "  add an entry to data/known_source_quirks.json recording what you confirmed."
+          echo "If the PDF does not print them, the parser is wrong:"
+          echo "  fix tools/parse_sbi.py, then run the Reprocess archive workflow."
 
       - name: Upload Pages artifact
         if: steps.commit.outputs.changed == 'true' || inputs.rebuild_all
